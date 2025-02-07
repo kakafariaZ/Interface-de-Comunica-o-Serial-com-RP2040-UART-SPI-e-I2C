@@ -1,5 +1,5 @@
 C:/Users/KauanFarias/Desktop/EMBARCATECH/Tarefa  4/tarefa/build/CMakeFiles/tarefa.dir
-C:/Users/KauanFarias/Desktop/EMBARCATECH/Tarefa  4/tarefa/build/CMakeFiles/tarefa_blink_pio_h.dir
+C:/Users/KauanFarias/Desktop/EMBARCATECH/Tarefa  4/tarefa/build/CMakeFiles/tarefa_ws2812_pio_h.dir
 C:/Users/KauanFarias/Desktop/EMBARCATECH/Tarefa  4/tarefa/build/CMakeFiles/edit_cache.dir
 C:/Users/KauanFarias/Desktop/EMBARCATECH/Tarefa  4/tarefa/build/CMakeFiles/rebuild_cache.dir
 C:/Users/KauanFarias/Desktop/EMBARCATECH/Tarefa  4/tarefa/build/pico-sdk/CMakeFiles/edit_cache.dir

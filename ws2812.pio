@@ -1,0 +1,12 @@
+.program ws2812
+.side_set 1
+
+.wrap_target
+bitloop:
+    out x, 1        side 0 [2];  // 3 clock cycles, T0H
+    jmp !x do_zero  side 1 [2];  // 3 clock cycles, T1H
+do_one:
+    jmp bitloop     side 1 [2];  // 3 clock cycles, T1L
+do_zero:
+    nop             side 0 [2];  // 3 clock cycles, T0L
+.wrap

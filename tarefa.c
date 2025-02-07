@@ -1,116 +1,121 @@
-#include <Arduino.h>
-#include <Adafruit_GFX.h>
-#include <Adafruit_SSD1306.h>
-#include <Adafruit_NeoPixel.h>
+#include <stdio.h>
+#include "pico/stdlib.h"
+#include "hardware/uart.h"
+#include "hardware/i2c.h"
+#include "hardware/gpio.h"
+#include "hardware/irq.h"
+#include "font.h"
+#include "ws2812.h"
+#include "ssd1306.h"
 
-#define OLED_RESET    -1
-#define SCREEN_WIDTH  128
-#define SCREEN_HEIGHT 64
+// Definições das GPIOs
+#define BUTTON_A 5
+#define BUTTON_B 6
+#define LED_RGB_R 11
+#define LED_RGB_G 12
+#define LED_RGB_B 13
+#define WS2812_PIN 7
+#define I2C_SDA 14
+#define I2C_SCL 15
 
-#define WS2812_PIN  7
-#define NUM_LEDS    25
-#define BUTTON_A    5
-#define BUTTON_B    6
-#define LED_RED     11
-#define LED_GREEN   12
-#define LED_BLUE    13
+// Variáveis globais de estado dos botões
+volatile bool button_a_pressed = false;
+volatile bool button_b_pressed = false;
 
-Adafruit_SSD1306 display(SCREEN_WIDTH, SCREEN_HEIGHT, &Wire, OLED_RESET);
-Adafruit_NeoPixel matrix(NUM_LEDS, WS2812_PIN, NEO_GRB + NEO_KHZ800);
+// Configurações de debouncing
+absolute_time_t last_interrupt_time_a = {0};
+absolute_time_t last_interrupt_time_b = {0};
+const uint32_t debounce_us = 200000; // 200 ms
 
-volatile bool buttonA_pressed = false;
-volatile bool buttonB_pressed = false;
-bool ledGreenState = false;
-bool ledBlueState = false;
-
-void IRAM_ATTR handleButtonA() {
-    static unsigned long last_interrupt_time = 0;
-    unsigned long interrupt_time = millis();
-    if (interrupt_time - last_interrupt_time > 200) {
-        buttonA_pressed = true;
-    }
-    last_interrupt_time = interrupt_time;
+// Funções de callback de interrupção
+void gpio_callback_a(uint gpio, uint32_t events) {
+    if (absolute_time_diff_us(last_interrupt_time_a, get_absolute_time()) < debounce_us) return;
+    last_interrupt_time_a = get_absolute_time();
+    button_a_pressed = !button_a_pressed;
+    gpio_put(LED_RGB_G, button_a_pressed);
 }
 
-void IRAM_ATTR handleButtonB() {
-    static unsigned long last_interrupt_time = 0;
-    unsigned long interrupt_time = millis();
-    if (interrupt_time - last_interrupt_time > 200) {
-        buttonB_pressed = true;
-    }
-    last_interrupt_time = interrupt_time;
+void gpio_callback_b(uint gpio, uint32_t events) {
+    if (absolute_time_diff_us(last_interrupt_time_b, get_absolute_time()) < debounce_us) return;
+    last_interrupt_time_b = get_absolute_time();
+    button_b_pressed = !button_b_pressed;
+    gpio_put(LED_RGB_B, button_b_pressed);
 }
 
 void setup() {
-    Serial.begin(115200);
-    pinMode(BUTTON_A, INPUT_PULLUP);
-    pinMode(BUTTON_B, INPUT_PULLUP);
-    pinMode(LED_GREEN, OUTPUT);
-    pinMode(LED_BLUE, OUTPUT);
-    attachInterrupt(digitalPinToInterrupt(BUTTON_A), handleButtonA, FALLING);
-    attachInterrupt(digitalPinToInterrupt(BUTTON_B), handleButtonB, FALLING);
-    
-    if (!display.begin(SSD1306_SWITCHCAPVCC, 0x3C)) {
-        Serial.println("SSD1306 error!");
-        while (1);
-    }
-    display.clearDisplay();
-    display.display();
-    
-    matrix.begin();
-    matrix.show();
+    // Configuração das GPIOs dos LEDs
+    gpio_init(LED_RGB_R);
+    gpio_set_dir(LED_RGB_R, GPIO_OUT);
+    gpio_init(LED_RGB_G);
+    gpio_set_dir(LED_RGB_G, GPIO_OUT);
+    gpio_init(LED_RGB_B);
+    gpio_set_dir(LED_RGB_B, GPIO_OUT);
+
+    // Configuração dos botões com interrupções
+    gpio_set_irq_enabled_with_callback(BUTTON_A, GPIO_IRQ_EDGE_FALL, true, &gpio_callback_a);
+    gpio_set_irq_enabled_with_callback(BUTTON_B, GPIO_IRQ_EDGE_FALL, true, &gpio_callback_b);
+
+    // Configuração da comunicação serial
+    stdio_init_all();
+    uart_init(uart0, 115200);
+    gpio_set_function(PICO_DEFAULT_UART_TX_PIN, GPIO_FUNC_UART);
+    gpio_set_function(PICO_DEFAULT_UART_RX_PIN, GPIO_FUNC_UART);
+
+    // Configuração do display SSD1306
+    i2c_init(i2c_default, 400 * 1000);
+    gpio_set_function(I2C_SDA, GPIO_FUNC_I2C);
+    gpio_set_function(I2C_SCL, GPIO_FUNC_I2C);
+    gpio_pull_up(I2C_SDA);
+    gpio_pull_up(I2C_SCL);
+    ssd1306_init();
+    ssd1306_clear();
+
+    // Configuração dos LEDs WS2812
+    ws2812_init(WS2812_PIN);
 }
 
 void loop() {
-    if (Serial.available() > 0) {
-        char receivedChar = Serial.read();
-        Serial.print("Recebido: ");
-        Serial.println(receivedChar);
-        
-        display.clearDisplay();
-        display.setTextSize(2);
-        display.setTextColor(SSD1306_WHITE);
-        display.setCursor(10, 20);
-        display.print(receivedChar);
-        display.display();
+    char c;
+    while (true) {
+        // Leia o caractere do monitor serial
+        if (uart_is_readable(uart0)) {
+            c = uart_getc(uart0);
+            ssd1306_draw_char(c);
+            ssd1306_display();
 
-        if (receivedChar >= '0' && receivedChar <= '9') {
-            int num = receivedChar - '0';
-            showSymbol(num);
+            // Exiba o símbolo correspondente na matriz 5x5 de LEDs WS2812 se for um número
+            if (c >= '0' && c <= '9') {
+                ws2812_show_number(c - '0');
+            }
         }
-    }
 
-    if (buttonA_pressed) {
-        ledGreenState = !ledGreenState;
-        digitalWrite(LED_GREEN, ledGreenState);
-        
-        Serial.println(ledGreenState ? "LED Verde ON" : "LED Verde OFF");
-        displayMessage(ledGreenState ? "LED Verde ON" : "LED Verde OFF");
-        buttonA_pressed = false;
-    }
-    
-    if (buttonB_pressed) {
-        ledBlueState = !ledBlueState;
-        digitalWrite(LED_BLUE, ledBlueState);
-        
-        Serial.println(ledBlueState ? "LED Azul ON" : "LED Azul OFF");
-        displayMessage(ledBlueState ? "LED Azul ON" : "LED Azul OFF");
-        buttonB_pressed = false;
+        // Verifique os botões e atualize o display
+        if (button_a_pressed) {
+            ssd1306_set_cursor(0, 0);
+            ssd1306_write_string("LED Verde: Ligado");
+            uart_puts(uart0, "LED Verde: Ligado\n");
+        } else {
+            ssd1306_set_cursor(0, 0);
+            ssd1306_write_string("LED Verde: Desligado");
+            uart_puts(uart0, "LED Verde: Desligado\n");
+        }
+
+        if (button_b_pressed) {
+            ssd1306_set_cursor(0, 1);
+            ssd1306_write_string("LED Azul: Ligado");
+            uart_puts(uart0, "LED Azul: Ligado\n");
+        } else {
+            ssd1306_set_cursor(0, 1);
+            ssd1306_write_string("LED Azul: Desligado");
+            uart_puts(uart0, "LED Azul: Desligado\n");
+        }
+
+        sleep_ms(100);
     }
 }
 
-void displayMessage(const char* message) {
-    display.clearDisplay();
-    display.setTextSize(1);
-    display.setCursor(10, 30);
-    display.print(message);
-    display.display();
-}
-
-void showSymbol(int num) {
-    matrix.clear();
-    for (int i = 0; i < NUM_LEDS; i++) {
-        matrix.setPixelColor(i, (num % 2 == 0) ? matrix.Color(0, 255, 0) : matrix.Color(255, 0, 0));
-    }
-    matrix.show();
+int main() {
+    setup();
+    loop();
+    return 0;
 }
